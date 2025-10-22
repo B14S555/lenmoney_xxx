@@ -1,8 +1,6 @@
-from aiogram.types import (ReplyKeyboardMarkup,
-                           InlineKeyboardMarkup,
-                           InlineKeyboardButton,
-                           KeyboardButton)
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# months mapping (if needed elsewhere)
 months = {
     1: 'Январь',
     2: 'Февраль',
@@ -18,37 +16,27 @@ months = {
     12: 'Декабрь',
 }
 
-section = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text='Добавить трату', callback_data='add'),
-         InlineKeyboardButton(text='Показать траты', callback_data='show')]
-    ]
-)
+# main menu — вариант 3: группы
+main_menu = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="💸 Добавить расход", callback_data="add_expense")],
+    [InlineKeyboardButton(text="📈 Добавить прибыль", callback_data="add_profit")],
+    [InlineKeyboardButton(text="📊 Статистика", callback_data="stats")],
+    [InlineKeyboardButton(text="💰 Баланс", callback_data="balance")],
+    [InlineKeyboardButton(text="📆 Отчёт по месяцам", callback_data="monthly_report")]
+])
 
-exit = InlineKeyboardMarkup(
-    inline_keyboard= [
-        [InlineKeyboardButton(text=f"Выйти", callback_data="exit")]
-    ]
-)
+exit = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="⬅️ Назад", callback_data="exit")]
+])
 
-def getYearsButton(years: list):
-    yearsButton = [
-        [InlineKeyboardButton(text=f"{year}", callback_data=f"year:{year}")]
-        for year in years
-    ]
-    yearsButton.append([InlineKeyboardButton(text='Отменить', callback_data='exit')])
-    return InlineKeyboardMarkup(inline_keyboard=yearsButton)
+def getYearsButton(years):
+    buttons = [[InlineKeyboardButton(text=str(i), callback_data=f"year:{i}") ] for i in years]
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="exit")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def getMonths():
-    monthsButton = []
-    row = []
-    for num, name in months.items():
-        row.append(InlineKeyboardButton(text=name, callback_data=f"month:{num}"))
-        if len(row) == 3:
-            monthsButton.append(row)
-            row = []
-    if row:
-        monthsButton.append(row)
-
-    monthsButton.append([InlineKeyboardButton(text="Отменить", callback_data="exit")])
-    return InlineKeyboardMarkup(inline_keyboard=monthsButton)
+    buttons = []
+    for i in range(1, 13):
+        buttons.append([InlineKeyboardButton(text=f"{i}", callback_data=f"month:{i}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="exit")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

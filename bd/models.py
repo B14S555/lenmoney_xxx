@@ -1,28 +1,39 @@
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
-from sqlalchemy import Integer, BigInteger, String, DateTime
-from datetime import datetime
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy import String, Integer
+import os
 
-# создаём движок SQLite
-engine = create_async_engine(url="sqlite+aiosqlite:///bd.sqlite")
+# ======================
+# Путь к базе
+# ======================
+os.makedirs("/data", exist_ok=True)
+DATABASE_URL = "sqlite+aiosqlite:////data/database.db"
+
+engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-
-class Base(AsyncAttrs, DeclarativeBase):
+class Base(DeclarativeBase):
     pass
 
-
+# ======================
+# Модель расходов/прибыли
+# ======================
 class Expense(Base):
-    __tablename__ = "expenses"
+    __tablename__ = "money"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger)
-    sum: Mapped[int] = mapped_column(Integer)
+    user_id: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[int] = mapped_column(Integer)
     description: Mapped[str] = mapped_column(String(255))
-    date: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    type: Mapped[str] = mapped_column(String(10))  # <== ВАЖНО (expense / profit)
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    day: Mapped[int] = mapped_column(Integer)
 
-
+# ======================
+# Инициализация базы
+# ======================
 async def async_main():
-    """Создание таблиц"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+

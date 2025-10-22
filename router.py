@@ -1,119 +1,112 @@
+import asyncio
+from datetime import datetime
 from aiogram import Router, F
-from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.filters.state import StateFilter
+from aiogram.fsm.state import StatesGroup, State
 import kb
-from states import *
-import bd.reqest as bd
+import bd.reqest as db
 
 router = Router()
 
+# FSM состояния
+class AddRecord(StatesGroup):
+    amount = State()
+    description = State()
+    type = State()
 
+# Быстрый ответ Telegram
+async def safe_answer(callback: CallbackQuery):
+    try:
+        await callback.answer()
+    except:
+        pass
+
+# Логирование действий
+def log_action(user, action: str):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 👤 {user.full_name} ({user.id}): {action}")
+
+# === /start ===
 @router.message(CommandStart())
-async def cmd_start(message: Message):
-    await message.answer(
-        text=f"""Привет, {message.from_user.first_name}!
-Это бот твоих расходов. Что ты хочешь сделать?""",
-        reply_markup=kb.section
-    )
+async def start(message: Message):
+    log_action(message.from_user, "запустил бота")
+    await message.answer("Привет! 🐼 Я — MoneyPanda, твоя личная финансовая панда 💚  ", reply_markup=kb.main_menu)
 
-
-@router.callback_query(F.data == "exit")
-async def back(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()  # ✅ Сразу отвечаем Telegram
-    await state.clear()
-    await callback.message.answer(
-        text="Что ты хочешь сделать?",
-        reply_markup=kb.section
-    )
-
-
-@router.callback_query(StateFilter(None), F.data == "add")
+# === Расход ===
+@router.callback_query(F.data == "add_expense")
 async def add_expense(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()  # ✅ Сразу ответ
-    await state.set_state(Add.sum)
-    await callback.message.answer("Введите сумму", reply_markup=kb.exit)
+    asyncio.create_task(safe_answer(callback))
+    log_action(callback.from_user, "начал добавление расхода")
+    await state.set_state(AddRecord.amount)
+    await state.update_data(type="expense")
+    await callback.message.answer("💸 Введите сумму расхода:", reply_markup=kb.exit)
 
+# === Прибыль ===
+@router.callback_query(F.data == "add_profit")
+async def add_profit(callback: CallbackQuery, state: FSMContext):
+    asyncio.create_task(safe_answer(callback))
+    log_action(callback.from_user, "начал добавление прибыли")
+    await state.set_state(AddRecord.amount)
+    await state.update_data(type="profit")
+    await callback.message.answer("📈 Введите сумму прибыли:", reply_markup=kb.exit)
 
-@router.message(Add.sum)
-async def add_sum(message: Message, state: FSMContext):
+# === Ввод суммы ===
+@router.message(AddRecord.amount)
+async def enter_sum(message: Message, state: FSMContext):
     try:
         amount = int(message.text)
-        await state.update_data(sum=amount)
-        await state.set_state(Add.description)
-        await message.answer("Введите описание", reply_markup=kb.exit)
+        await state.update_data(amount=amount)
+        await state.set_state(AddRecord.description)
+        log_action(message.from_user, f"ввел сумму: {amount}")
+        await message.answer("📝 Введите описание:", reply_markup=kb.exit)
     except ValueError:
-        await message.answer("Я вас не понял, введите число.")
+        await message.answer("⚠️ Введите число, например 250")
 
-
-@router.message(Add.description)
-async def add_description(message: Message, state: FSMContext):
-    await state.update_data(description=message.text)
+# === Ввод описания и запись ===
+@router.message(AddRecord.description)
+async def enter_description(message: Message, state: FSMContext):
     data = await state.get_data()
-    await bd.add(user_id=message.from_user.id, data=data)
+    data["description"] = message.text
+
+    await db.add_record(message.from_user.id, data)
+    emoji = "📉" if data["type"] == "expense" else "📈"
+    log_action(message.from_user, f"добавил запись: {emoji} {data['amount']} грн — {data['description']}")
 
     await message.answer(
-        f"""Трата успешно добавлена ✅
-Сумма: {data['sum']}
-Описание: {data['description']}""",
-        reply_markup=kb.section
+        f"{emoji} Запись добавлена!\n💰 {data['amount']} грн\n📝 {data['description']}",
+        reply_markup=kb.main_menu
     )
     await state.clear()
 
+# === Последние операции ===
+@router.callback_query(F.data == "stats")
+async def stats(callback: CallbackQuery):
+    asyncio.create_task(safe_answer(callback))
+    log_action(callback.from_user, "просмотрел последние операции")
+    text = await db.get_last_records(callback.from_user.id)
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=kb.main_menu)
 
-@router.callback_query(StateFilter(None), F.data == "show")
-async def show(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()  # ✅ сразу ответ
+# === Баланс ===
+@router.callback_query(F.data == "balance")
+async def balance(callback: CallbackQuery):
+    asyncio.create_task(safe_answer(callback))
+    log_action(callback.from_user, "запросил общий баланс")
+    text = await db.get_statistics(callback.from_user.id)
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=kb.main_menu)
 
-    years = await bd.getYears(callback.from_user.id)
-    if not years:
-        await callback.message.answer("У вас нет ни одной траты.")
-        return
+# === Месячный отчет ===
+@router.callback_query(F.data == "monthly_report")
+async def monthly_report(callback: CallbackQuery):
+    asyncio.create_task(safe_answer(callback))
+    log_action(callback.from_user, "запросил месячный отчет")
+    text = await db.get_monthly_report(callback.from_user.id)
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=kb.main_menu)
 
-    await state.set_state(Get.year)
-    await callback.message.answer(
-        "Выберите год:",
-        reply_markup=kb.getYearsButton(years=years)
-    )
-
-
-@router.callback_query(Get.year, F.data.startswith("year"))
-async def year(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()  # ✅ сразу ответ
-
-    year = callback.data.split(':')[1]
-    try:
-        await state.update_data(year=int(year))
-        await state.set_state(Get.month)
-        await callback.message.answer(
-            "Выберите месяц:",
-            reply_markup=kb.getMonths()
-        )
-    except ValueError:
-        await callback.message.answer("Ошибка при выборе года.")
-
-
-@router.callback_query(Get.month, F.data.startswith("month:"))
-async def month(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()  # ✅ сразу ответ
-
-    month = callback.data.split(":")[1]
-    try:
-        month = int(month)
-        if 1 <= month <= 12:
-            await state.update_data(month=month)
-            data = await state.get_data()
-            expenses = await bd.getAll(
-                user_id=callback.from_user.id,
-                data=data
-            )
-            await callback.message.answer(
-                text=expenses,
-                reply_markup=kb.exit
-            )
-    except ValueError:
-        await callback.message.answer(
-            text="Ошибка при выборе месяца.",
-            reply_markup=kb.exit
-        )
+# === Выход в меню ===
+@router.callback_query(F.data == "exit")
+async def exit_menu(callback: CallbackQuery, state: FSMContext):
+    asyncio.create_task(safe_answer(callback))
+    log_action(callback.from_user, "вернулся в меню")
+    await state.clear()
+    await callback.message.answer("🏠 Главное меню:", reply_markup=kb.main_menu)
